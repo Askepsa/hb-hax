@@ -1,21 +1,18 @@
 // #![allow(unused)]
 
+use std::error::Error;
+
 use opencv::core::{no_array, Mat, Point, Scalar, Vector};
 use opencv::highgui::{imshow, set_mouse_callback, wait_key_def, MouseEventTypes};
 use opencv::imgcodecs::{self, imread};
 use opencv::imgproc::{self, adaptive_threshold, draw_contours, find_contours};
-use opencv::Result;
 
-use kalosm_ocr::Ocr;
-
-// view img
-fn main() -> Result<()> {
-    let mut model = Ocr::builder().build();
-
+// OCR
+fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn _do_something() -> Result<()> {
+fn _do_something() -> opencv::Result<()> {
     let img = imread("./monke.png", imgcodecs::IMREAD_GRAYSCALE)?;
 
     let mut edge = Mat::default();
