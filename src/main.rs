@@ -2,13 +2,41 @@
 
 use std::error::Error;
 
-use opencv::core::{no_array, Mat, Point, Scalar, Vector};
+use opencv::core::{no_array, Mat, Point, Point_, Scalar, Vector};
 use opencv::highgui::{imshow, set_mouse_callback, wait_key_def, MouseEventTypes};
 use opencv::imgcodecs::{self, imread};
-use opencv::imgproc::{self, adaptive_threshold, draw_contours, find_contours};
+use opencv::imgproc::adaptive_threshold;
+use opencv::imgproc::{self, contour_area_def, draw_contours, find_contours, moments_def};
+
+struct Square {
+    area: f64,
+    contours: Vector<Point>,
+    center: Point,
+    num: Option<i32>,
+}
+
+impl Square {
+    fn new(contours: Vector<Point_<i32>>) -> Result<Self, Box<dyn Error>> {
+        let area = contour_area_def(&contours)?;
+        let moment = moments_def(&contours)?;
+        let center = Point::new(
+            (moment.m10 / moment.m00) as i32,
+            (moment.m01 / moment.m00) as i32,
+        );
+
+        Ok(Self {
+            area,
+            contours,
+            center,
+            num: None,
+        })
+    }
+}
 
 // OCR
 fn main() -> Result<(), Box<dyn Error>> {
+    _do_something()?;
+
     Ok(())
 }
 
@@ -16,7 +44,6 @@ fn _do_something() -> opencv::Result<()> {
     let img = imread("./monke.png", imgcodecs::IMREAD_GRAYSCALE)?;
 
     let mut edge = Mat::default();
-    // canny_def(&img, &mut edge, 200., 255.)?;
     adaptive_threshold(
         &img,
         &mut edge,
@@ -43,8 +70,15 @@ fn _do_something() -> opencv::Result<()> {
     // as key to hashmap and its corresponding parsed number as value
 
     for contour in contours.iter() {
-        println!("{:#?}\n\n\n", contour);
+        let _square = Square::new(contour);
+
+        // crop
+        // println!("{:#?}\n\n\n", contour);
     }
+
+    // copy this to new img
+    // x: 528 y: 639
+    // x: 668 y: 779
 
     // get store values of hashmap to an array and sort it
     // for each img (struct) then get centroid coords and
@@ -64,7 +98,15 @@ fn _do_something() -> opencv::Result<()> {
         Point::new(0, 0),
     )?;
 
+    // for row in 0..=500 {
+    //     for col in 0..=500 {
+    //         img.at_2d_mut::<core::Vec3b>(row, col)?
+    //             .copy_from_slice(&[255, 255, 255]);
+    //     }
+    // }
+
     while wait_key_def()? != 'q' as i32 {
+        println!("hoy");
         set_mouse_callback("Monke", Some(Box::new(_print_coords)))?;
         imshow("Monke", &img)?;
     }
