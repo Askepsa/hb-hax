@@ -1,129 +1,67 @@
 // #![allow(unused)]
 
-use opencv::{
-    core::{
-        self, bitwise_and, in_range, no_array, type_to_str, Mat, MatExprTraitConst, MatTraitConst,
-        Point, Scalar, CV_8UC3,
-    },
-    highgui::{imshow, set_mouse_callback, wait_key, MouseEventTypes},
-    imgcodecs::{imread, IMREAD_COLOR},
-    imgproc::{
-        canny, circle_def, cvt_color, draw_contours, find_contours, moments, CHAIN_APPROX_SIMPLE,
-        COLOR_BGRA2GRAY, LINE_8, RETR_EXTERNAL,
-    },
-    Result,
-};
+use opencv::core::{self, min_max_loc, no_array, Mat, MatTraitConst, MatTraitConstManual, Point, Rect, Scalar, Size};
+use opencv::highgui::{imshow, wait_key_def};
+use opencv::imgcodecs::{self, imread};
+use opencv::imgproc;
 
-fn print_coords(event: i32, x: i32, y: i32, _: i32) {
-    if let Ok(event) = MouseEventTypes::try_from(event) {
-        match event {
-            MouseEventTypes::EVENT_LBUTTONDOWN => println!("x: {x} y: {y}"),
-            _ => (),
-        }
-    };
-}
+use std::error::Error;
 
-// bilangin kung ilang green rectangle ang meron
-// at lagyan ng label sa original image
-// at lagyan ng label ang sentro ng object
-fn main() -> Result<()> {
-    // read image
-    let mut img = imread("./photo.png", IMREAD_COLOR)?; // Mat uchar3
-    let (col, row) = (img.cols(), img.rows());
+type Err = Box<dyn Error>;
 
-    println!("channels: {}", img.channels());
-    println!("depth: {}", img.depth());
-    println!("type: {}", type_to_str(img.typ()).unwrap());
-
-    // make mask
-    // 47, 158, 68 color target
-    // filter img according to color
-
-    // BGR
-    let color = Scalar::new(75., 151., 57., 1.);
-    let mut mask = Mat::default();
-    in_range(&img, &color, &color, &mut mask)?;
-
-    // perform AND bitwise operation at img
-    // and pass the result img to "output" variable/Mat
-    let mut output = Mat::zeros(row, col, CV_8UC3)?.to_mat()?;
-
-    bitwise_and(&img, &img, &mut output, &mask)?;
-    cvt_color(&output.clone(), &mut output, COLOR_BGRA2GRAY, 0)?;
-    canny(&output.clone(), &mut output, 150., 175., 5, true)?;
-
-    // find contours
-    let mut contours: core::Vector<core::Vector<Point>> = core::Vector::default();
-    find_contours(
-        &output,
-        &mut contours,
-        RETR_EXTERNAL,
-        CHAIN_APPROX_SIMPLE,
-        Point { x: 0, y: 0 },
+fn main() -> Result<(), Err> {
+    let mut img = imread("playground.png", imgcodecs::IMREAD_GRAYSCALE)?;
+    let templ = imread("target.png", imgcodecs::IMREAD_GRAYSCALE)?;
+    let mut result = Mat::new_size_with_default(
+        Size::new(img.cols() - templ.cols() + 1, img.rows() - templ.rows() + 1),
+        core::CV_32FC1,
+        Scalar::default(),
     )?;
 
-    for contour in contours.iter() {
-        println!("----------------------------");
-        // get moment
-        let moment = moments(&contour, true)?;
-        let x = (moment.m10 / moment.m00) as i32;
-        let y = (moment.m01 / moment.m00) as i32;
+    imgproc::match_template(
+        &img,
+        &templ,
+        &mut result,
+        imgproc::TM_CCOEFF_NORMED, // da best daw pag masyadong maliwanag ang img
+        &no_array(),
+    )?;
 
-        let max_val = i32::max_value();
-        let top = contour
-            .iter()
-            .fold(Point::new(max_val, max_val), |acc, point| {
-                let acc_sum = acc.x.saturating_add(acc.y);
-                if point.x + point.y <= acc_sum {
-                    Point::new(point.x, point.y)
-                } else {
-                    acc
-                }
-            });
+    let mut min_loc = Point::default();
+    let mut max_loc = Point::default();
+    min_max_loc(
+        &result,
+        None,
+        None,
+        Some(&mut min_loc),
+        Some(&mut max_loc),
+        &core::no_array(),
+    )?;
 
-        let min_val = i32::min_value();
-        let bot = contour
-            .iter()
-            .fold(Point::new(min_val, min_val), |acc, point| {
-                let acc_sum = acc.y.saturating_add(acc.x);
-                if point.y + point.x >= acc_sum {
-                    Point::new(point.x, point.y)
-                } else {
-                    acc
-                }
-            });
+    println!("{:#?}", min_loc);
+    println!("{:#?}", max_loc);
 
-        circle_def(&mut img, Point::new(x, y), 5, Scalar::new(0., 0., 255., 1.))?;
-        circle_def(
-            &mut img,
-            Point::new(top.x, top.y),
-            10,
-            Scalar::new(0., 0., 255., 1.),
-        )?;
-        circle_def(
-            &mut img,
-            Point::new(bot.x, bot.y),
-            10,
-            Scalar::new(0., 0., 255., 1.),
-        )?;
+    imgproc::rectangle(
+        &mut img,
+        Rect::new(max_loc.x, max_loc.y, templ.rows(), templ.cols()),
+        Scalar::new(0., 0., 0., 0.),
+        2,
+        imgproc::LINE_8,
+        0,
+    )?;
+
+    for i in 0..result.rows() {
+        for j in 0..result.cols() {
+            let res = result.at_2d::<f32>(i, j)?;
+            if *res >= 0.8 {
+                println!("{j} {i} {:?}", res);
+            }
+        }
     }
 
-    draw_contours(
-        &mut img,
-        &contours,
-        -1,
-        Scalar::new(0., 0., 255., 0.),
-        1,
-        LINE_8,
-        &no_array(),
-        1,
-        Point::new(0, 0),
-    )?;
+    println!("{:#?}", result);
 
-    // render image
-    while wait_key(0)? != 'q' as i32 {
-        set_mouse_callback("Image", Some(Box::new(print_coords)))?;
-        imshow("Image", &img)?;
+    while wait_key_def()? != 'q' as i32 {
+        imshow("img", &img)?;
     }
 
     Ok(())
