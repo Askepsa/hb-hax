@@ -21,8 +21,7 @@ type Error = Box<dyn error::Error>;
 
 // x: 440 y: 298
 // x: 1626 y: 1014
-fn screenshot() -> Result<Mat, Error> {
-    let mut screen = Screen::new();
+fn screenshot(screen: &mut Screen) -> Result<Mat, Error> {
     let x = 881;
     let y = 387;
     let width = 1019 - 881; // 138
@@ -37,7 +36,7 @@ fn screenshot() -> Result<Mat, Error> {
         *frame.at_2d_mut::<core::Vec4b>(y, x)? = core::Vec4b::from_array(color);
     }
 
-    cvt_color_def(&frame.clone(), &mut frame, imgproc::COLOR_BGRA2BGR)?;
+    cvt_color_def(&frame.clone(), &mut frame, imgproc::COLOR_RGB2BGR)?;
     cvt_color_def(&frame.clone(), &mut frame, imgproc::COLOR_BGR2HSV)?;
 
     Ok(frame)
@@ -47,10 +46,11 @@ fn main() -> Result<(), Error> {
     // x: 881 y: 387
     thread::sleep(Duration::from_secs(5));
     let auto_gui = RustAutoGui::new(true);
+    let mut screen = Screen::new();
     auto_gui.move_mouse_to_pos(881, 387, 0.);
     auto_gui.left_click();
     loop {
-        let frame = screenshot()?;
+        let frame = screenshot(&mut screen)?;
         if is_green(&frame)? {
             auto_gui.left_click();
             auto_gui.left_click();
