@@ -1,11 +1,10 @@
-#![allow(unused)]
+// #![allow(unused)]
 
 use std::error::Error;
 use std::thread::sleep;
 use std::time::Duration;
 
 use opencv::core::{self, no_array, MatExprTraitConst, MatTrait, MatTraitConst};
-use opencv::highgui::set_mouse_callback;
 use opencv::imgcodecs::imread;
 use opencv::imgproc::{self, match_template};
 use opencv::{highgui, imgcodecs};
@@ -21,31 +20,18 @@ fn main() -> Result<(), Err> {
     let mut screen = Screen::new();
     let templ = imread("target.png", imgcodecs::IMREAD_COLOR)?;
 
-    let mut frame = get_frame(&mut screen)?;
-    while highgui::wait_key_def()? != 'q' as i32 {
-        set_mouse_callback("imahe", Some(Box::new(_on_mouse)))?;
-        let (x, y) = get_templ_coords(&frame, &templ)?;
-        println!("{x} {y}");
-        imgproc::circle_def(
-            &mut frame,
-            core::Point::new(x, y),
-            3,
-            core::Scalar::new(0., 255., 0., 0.),
-        );
-        highgui::imshow("imahe", &frame)?;
-    }
-
     // get frame
     // convert auto_gui buf to opencv's mat type
     loop {
-        let mut frame = get_frame(&mut screen)?;
+        let frame = get_frame(&mut screen)?;
         let (x, y) = get_templ_coords(&frame, &templ)?;
         println!("x: {x}, y: {y}");
-        auto_gui.move_mouse_to_pos(x, y, 0.);
+
+        let screen_offset_x = 166;
+        let screen_offset_y = 232;
+        auto_gui.move_mouse_to_pos(x + screen_offset_x, y + screen_offset_y, 0.0);
         auto_gui.left_click();
     }
-
-    Ok(())
 }
 
 fn get_frame(screen: &mut Screen) -> Result<core::Mat, Err> {
@@ -53,7 +39,7 @@ fn get_frame(screen: &mut Screen) -> Result<core::Mat, Err> {
     // top: 166, 232     1718, 238
     // bot: 160, 1044    1692, 1040
 
-    let img_buf = screen.grab_screen_image((166, 232, 1718 - 166, 1040 - 232));
+    let img_buf = screen.grab_screen_image((166, 232, 1692 - 166, 1040 - 232));
     let mut frame = core::Mat::zeros(
         img_buf.height() as i32,
         img_buf.width() as i32,
