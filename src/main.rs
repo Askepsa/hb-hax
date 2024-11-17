@@ -1,26 +1,72 @@
-// #![allow(unused)]
+#![allow(unused)]
 
 use std::error::Error;
 
-use opencv::core::{self, no_array, MatTraitConst};
+use opencv::core::{self, no_array, MatTrait, MatTraitConst};
 use opencv::highgui;
 use opencv::imgcodecs::{self, imread};
 use opencv::imgproc::{self, match_template};
 
+use rustautogui::{RustAutoGui, Screen};
+
 type Err = Box<dyn Error>;
 
 fn main() -> Result<(), Err> {
-    let mut img = imread("playground.png", imgcodecs::IMREAD_GRAYSCALE)?;
+    let auto_gui = RustAutoGui::new(true);
+    let mut screen = Screen::new();
+
+    // Left         Right
+    // 166, 232     1718, 238
+    // 160, 1044    1692, 1040
+
+    // get frame
+    // convert auto_gui buf to opencv's buf type
+    let img_buf = screen.grab_screen_image((166, 232, 1692, 1040));
+    let mut frame = core::Mat::new_size_with_default(
+        core::Size::new(img_buf.width() as i32, img_buf.height() as i32),
+        core::CV_8UC4,
+        core::Scalar::default(),
+    )?;
+    for pixel in img_buf.enumerate_pixels() {
+        let x = pixel.0 as i32;
+        let y = pixel.1 as i32;
+        let color = pixel.2.0;
+        frame
+            .at_2d_mut::<core::Vec4b>(x, y)?
+            .copy_from_slice(&color);
+    }
+
+    // get playground coords
+    while highgui::wait_key(0)? != 'q' as i32 {
+        highgui::set_mouse_callback("img", Some(Box::new(on_mouse)));
+        highgui::imshow("img", &frame);
+    }
+
+    Ok(())
+}
+
+fn on_mouse(event: i32, x: i32, y: i32, _: i32) {
+    use highgui::MouseEventTypes;
+
+    if let Ok(event) = MouseEventTypes::try_from(event) {
+        if event == MouseEventTypes::EVENT_LBUTTONUP {
+            println!("{x}, {y}");
+        }
+    }
+}
+
+fn get_target_coords(frame: core::Mat, templ: core::Mat) -> Result<(i32, i32), Err> {
+    let mut frame = imread("playground.png", imgcodecs::IMREAD_GRAYSCALE)?;
     let templ = imread("target.png", imgcodecs::IMREAD_GRAYSCALE)?;
 
     // template matching
     let mut templ_match = core::Mat::new_size_with_default(
-        core::Size::new(img.cols() - templ.cols(), img.rows() - templ.rows()),
+        core::Size::new(frame.cols() - templ.cols(), frame.rows() - templ.rows()),
         core::CV_32FC1,
         core::VecN::default(),
     )?;
     match_template(
-        &img,
+        &frame,
         &templ,
         &mut templ_match,
         imgproc::TM_CCOEFF_NORMED,
@@ -41,7 +87,7 @@ fn main() -> Result<(), Err> {
 
     // draw rectangle
     imgproc::rectangle(
-        &mut img,
+        &mut frame,
         core::Rect::new(max_loc.x, max_loc.y, templ.rows(), templ.cols()),
         core::Scalar::new(255., 255., 255., 255.),
         1,
@@ -49,9 +95,5 @@ fn main() -> Result<(), Err> {
         0,
     )?;
 
-    while highgui::wait_key_def()? != 'q' as i32 {
-        highgui::imshow("Img", &img)?;
-    }
-
-    Ok(())
+    Ok((69, 69))
 }
