@@ -30,7 +30,7 @@ fn main() -> Result<(), Err> {
     // 36   1051  bot left
     // 1884 1055  bot right
 
-    let img = imgcodecs::imread("./monke.png", imgcodecs::IMREAD_GRAYSCALE)?;
+    let img = imgcodecs::imread("./madami.png", imgcodecs::IMREAD_GRAYSCALE)?;
     let mut edge = core::Mat::default();
     imgproc::adaptive_threshold(
         &img,
@@ -59,7 +59,15 @@ fn main() -> Result<(), Err> {
         let img = img.roi(core::Rect::new(top.x, top.y, bot.x - top.x, bot.y - top.y))?;
         let mut edges = core::Mat::default();
         imgproc::canny_def(&img, &mut edges, 128., 256.)?;
-        println!("{:#?}", img);
+        imgproc::resize(
+            &img,
+            &mut edges,
+            core::Size::default(),
+            0.2,
+            0.2,
+            imgproc::INTER_LINEAR,
+        );
+        // println!("{:#?}", img);
         let _ = imgcodecs::imwrite_def(&format!("./imgs/{}.png", square.id), &edges);
     }
 
