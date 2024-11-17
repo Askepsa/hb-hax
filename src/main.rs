@@ -21,15 +21,12 @@ fn main() -> Result<(), Err> {
     let templ = imread("target.png", imgcodecs::IMREAD_COLOR)?;
 
     // get frame
-    // convert auto_gui buf to opencv's mat type
+    // convert auto_gui's buf to opencv's mat type
     loop {
         let frame = get_frame(&mut screen)?;
         let (x, y) = get_templ_coords(&frame, &templ)?;
         println!("x: {x}, y: {y}");
-
-        let screen_offset_x = 166;
-        let screen_offset_y = 232;
-        auto_gui.move_mouse_to_pos(x + screen_offset_x, y + screen_offset_y, 0.0);
+        auto_gui.move_mouse_to_pos(x + 166, y + 232, 0.0);
         auto_gui.left_click();
     }
 }
