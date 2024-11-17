@@ -1,6 +1,8 @@
 // #![allow(unused)]
 
-use opencv::core::{self, min_max_loc, no_array, Mat, MatTraitConst, MatTraitConstManual, Point, Rect, Scalar, Size};
+use opencv::core::{
+    self, min_max_loc, no_array, Mat, MatTraitConst, Point, Rect, Scalar, Size,
+};
 use opencv::highgui::{imshow, wait_key_def};
 use opencv::imgcodecs::{self, imread};
 use opencv::imgproc;
