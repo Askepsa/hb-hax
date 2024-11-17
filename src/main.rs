@@ -1,124 +1,173 @@
-// #![allow(unused)]
+#![allow(unused)]
 
 use std::error::Error;
+use std::process::Command;
 
-use opencv::core::{no_array, Mat, Point, Point_, Scalar, Vector};
-use opencv::highgui::{imshow, set_mouse_callback, wait_key_def, MouseEventTypes};
-use opencv::imgcodecs::{self, imread};
-use opencv::imgproc::adaptive_threshold;
-use opencv::imgproc::{self, contour_area_def, draw_contours, find_contours, moments_def};
+use opencv::{
+    core::{self, MatTraitConst},
+    highgui, imgcodecs, imgproc,
+};
+use rustautogui::{RustAutoGui, Screen};
+
+type Err = Box<dyn Error>;
 
 struct Square {
-    area: f64,
-    contours: Vector<Point>,
-    center: Point,
-    num: Option<i32>,
+    pub corners: (core::Point, core::Point),
+    pub center: core::Point,
+    pub value: Option<u32>,
 }
 
-impl Square {
-    fn new(contours: Vector<Point_<i32>>) -> Result<Self, Box<dyn Error>> {
-        let area = contour_area_def(&contours)?;
-        let moment = moments_def(&contours)?;
-        let center = Point::new(
-            (moment.m10 / moment.m00) as i32,
-            (moment.m01 / moment.m00) as i32,
-        );
+fn main() -> Result<(), Err> {
+    startup();
 
-        Ok(Self {
-            area,
-            contours,
-            center,
-            num: None,
-        })
-    }
-}
+    // read screen
+    let auto_gui = RustAutoGui::new(true);
+    let mut screen = Screen::new();
 
-// OCR
-fn main() -> Result<(), Box<dyn Error>> {
-    _do_something()?;
+    // 28   231   top left
+    // 1892 243   top right
+    // 36   1051  bot left
+    // 1884 1055  bot right
 
-    Ok(())
-}
-
-fn _do_something() -> opencv::Result<()> {
-    let img = imread("./monke.png", imgcodecs::IMREAD_GRAYSCALE)?;
-
-    let mut edge = Mat::default();
-    adaptive_threshold(
+    let img = imgcodecs::imread("./monke.png", imgcodecs::IMREAD_GRAYSCALE)?;
+    let mut edge = core::Mat::default();
+    imgproc::adaptive_threshold(
         &img,
         &mut edge,
         128.,
-        imgproc::ADAPTIVE_THRESH_MEAN_C,
+        core::BORDER_REPLICATE,
         imgproc::THRESH_BINARY_INV,
         7,
         3.,
     )?;
 
     // get coords
-    let mut contours: Vector<Vector<Point>> = Vector::default();
-    find_contours(
+    let mut contours: core::Vector<core::Vector<core::Point>> = core::Vector::default();
+    imgproc::find_contours(
         &edge,
         &mut contours,
         imgproc::RETR_EXTERNAL,
         imgproc::CHAIN_APPROX_SIMPLE,
-        Point::new(0, 0),
+        core::Point::new(0, 0),
     )?;
 
-    // make struct of img (uuid: String, contour, val: Option<u32>)
-    // crop images and then save to array (with uuid) and file
-    // make tesseract read each images and add corresponding uuid
-    // as key to hashmap and its corresponding parsed number as value
-
+    let mut squares = Vec::new();
     for contour in contours.iter() {
-        let _square = Square::new(contour);
+        let area = imgproc::contour_area_def(&contour)?;
+        if area < 10000. {
+            continue;
+        }
 
-        // crop
-        // println!("{:#?}\n\n\n", contour);
+        let corners = get_corners(&contour);
+        let center = get_centroid(&contour)?;
+        let square = Square {
+            corners,
+            center,
+            value: None,
+        };
+        squares.push(square);
     }
 
-    // copy this to new img
-    // x: 528 y: 639
-    // x: 668 y: 779
+    // save one roi image
+    let mut i = 0;
+    for square in squares {
+        let (top, bot) = square.corners;
+        let img = img.roi(core::Rect::new(top.x, top.y, bot.x - top.x, bot.y - top.y))?;
+        if let Ok(_) = imgcodecs::imwrite_def(&format!("./imgs/{}.png", i), &img) {
+            i += 1;
+        }
+    }
 
-    // get store values of hashmap to an array and sort it
-    // for each img (struct) then get centroid coords and
-    // make rustautogui move the mouse and click the
-    // coords
-
-    let mut img = imread("./monke.png", imgcodecs::IMREAD_COLOR)?;
-    draw_contours(
+    let mut img = imgcodecs::imread("./monke.png", imgcodecs::IMREAD_COLOR)?;
+    imgproc::draw_contours(
         &mut img,
         &contours,
         -1,
-        Scalar::new(0., 0., 255., 0.),
+        core::Scalar::new(0., 0., 255., 0.),
         2,
         imgproc::LINE_8,
-        &no_array(),
+        &core::no_array(),
         1,
-        Point::new(0, 0),
+        core::Point::new(0, 0),
     )?;
 
-    // for row in 0..=500 {
-    //     for col in 0..=500 {
-    //         img.at_2d_mut::<core::Vec3b>(row, col)?
-    //             .copy_from_slice(&[255, 255, 255]);
-    //     }
-    // }
-
-    while wait_key_def()? != 'q' as i32 {
-        println!("hoy");
-        set_mouse_callback("Monke", Some(Box::new(_print_coords)))?;
-        imshow("Monke", &img)?;
+    while highgui::wait_key_def()? != 'q' as i32 {
+        highgui::set_mouse_callback("screen", Some(Box::new(on_mouse)));
+        highgui::imshow("screen", &img);
     }
 
     Ok(())
 }
 
-fn _print_coords(event: i32, x: i32, y: i32, _: i32) {
-    if let Ok(event) = MouseEventTypes::try_from(event) {
+fn get_centroid(contour: &core::Vector<core::Point_<i32>>) -> Result<core::Point, Err> {
+    let moment = imgproc::moments(&contour, false)?;
+    let (x, y) = (moment.m10 / moment.m00, moment.m01 / moment.m00);
+    Ok(core::Point::new(x as i32, y as i32))
+}
+
+fn get_corners(contour: &core::Vector<core::Point_<i32>>) -> (core::Point, core::Point) {
+    let max_val = i32::max_value();
+    let top_left = contour
+        .iter()
+        .fold(core::Point::new(max_val, max_val), |mut acc, point| {
+            if point.x <= acc.x && point.y <= acc.y {
+                acc = point;
+            }
+            acc
+        });
+
+    let min_val = 0;
+    let bot_right = contour
+        .iter()
+        .fold(core::Point::new(min_val, min_val), |mut acc, point| {
+            if point.x >= acc.x && point.y >= acc.y {
+                acc = point;
+            }
+            acc
+        });
+
+    (top_left, bot_right)
+}
+
+fn on_mouse(event: i32, x: i32, y: i32, _: i32) {
+    if let Ok(event) = highgui::MouseEventTypes::try_from(event) {
         match event {
-            MouseEventTypes::EVENT_LBUTTONDOWN => println!("x: {x} y: {y}"),
+            highgui::MouseEventTypes::EVENT_LBUTTONUP => println!("{x} {y}"),
             _ => (),
         }
-    };
+    }
+}
+
+fn startup() {
+    let _ = Command::new("rm")
+        .arg("-rf")
+        .arg("imgs")
+        .output()
+        .expect("kaboom");
+
+    let _ = Command::new("mkdir")
+        .arg("-p")
+        .arg("imgs")
+        .output()
+        .expect("sumabog");
+}
+
+fn get_screen(screen: &mut Screen) {
+    screen.grab_screen_image((todo!()));
+}
+
+fn ocr(src: &str) -> Result<u32, Err> {
+    let output = Command::new("ocrs")
+        .arg(src)
+        .output()
+        .expect("sumabog ang ocr");
+    let num: u32 = output
+        .stdout
+        .into_iter()
+        .filter(|b| b.is_ascii_digit())
+        .map(|b| b as char)
+        .collect::<String>()
+        .parse()?;
+
+    Ok(num)
 }
