@@ -1,21 +1,24 @@
 #![allow(unused)]
 
+use std::cell::RefCell;
 use std::error::Error;
 use std::process::Command;
 
-use opencv::{
-    core::{self, MatTraitConst},
-    highgui, imgcodecs, imgproc,
-};
+use opencv::core::{self, MatTraitConst};
+use opencv::highgui;
+use opencv::imgcodecs;
+use opencv::imgproc;
+
 use rustautogui::{RustAutoGui, Screen};
 
 type Err = Box<dyn Error>;
 
+#[derive(Debug)]
 struct Square {
     pub id: u32,
     pub corners: (core::Point, core::Point),
     pub center: core::Point,
-    pub value: Option<u32>,
+    pub value: RefCell<Option<u32>>,
 }
 
 fn main() -> Result<(), Err> {
@@ -52,8 +55,8 @@ fn main() -> Result<(), Err> {
         core::Point::new(0, 0),
     )?;
 
-    // save one roi image
-    let squares = get_squares(&contours)?;
+    // save roi images
+    let mut squares = get_squares(&contours)?;
     for square in squares.iter() {
         let (top, bot) = square.corners;
         let img = img.roi(core::Rect::new(top.x, top.y, bot.x - top.x, bot.y - top.y))?;
@@ -66,13 +69,12 @@ fn main() -> Result<(), Err> {
             0.2,
             0.2,
             imgproc::INTER_LINEAR,
-        );
+        )?;
         // println!("{:#?}", img);
         let _ = imgcodecs::imwrite_def(&format!("./imgs/{}.png", square.id), &edges);
     }
 
-    // (sqr_id, value)
-    let mut proccess_order: Vec<(u32, u32)> = Vec::new();
+    // run ocr
     for square in squares.iter() {
         let path = format!("./imgs/{}.png", square.id);
         let val = {
@@ -81,10 +83,15 @@ fn main() -> Result<(), Err> {
                 _ => continue,
             }
         };
-        proccess_order.push((square.id, val));
+        *square.value.borrow_mut() = Some(val);
     }
-    proccess_order.sort_by_key(|(_, val)| *val);
-    println!("{:?}", proccess_order);
+
+    squares.sort_by_key(|sqr| sqr.value.borrow().unwrap());
+
+    for sqr in squares {
+        print!("[{}, {}] ", sqr.id, sqr.value.borrow().unwrap());
+    }
+    println!("");
 
     Ok(())
 }
@@ -104,7 +111,7 @@ fn get_squares(contours: &core::Vector<core::Vector<core::Point>>) -> Result<Vec
             id,
             corners,
             center,
-            value: None,
+            value: RefCell::new(None),
         };
         squares.push(square);
         id += 1;
