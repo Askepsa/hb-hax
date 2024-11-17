@@ -12,6 +12,7 @@ use rustautogui::{RustAutoGui, Screen};
 type Err = Box<dyn Error>;
 
 struct Square {
+    pub id: u32,
     pub corners: (core::Point, core::Point),
     pub center: core::Point,
     pub value: Option<u32>,
@@ -51,7 +52,38 @@ fn main() -> Result<(), Err> {
         core::Point::new(0, 0),
     )?;
 
+    // save one roi image
+    let squares = get_squares(&contours)?;
+    for square in squares.iter() {
+        let (top, bot) = square.corners;
+        let img = img.roi(core::Rect::new(top.x, top.y, bot.x - top.x, bot.y - top.y))?;
+        let mut edges = core::Mat::default();
+        imgproc::canny_def(&img, &mut edges, 128., 256.)?;
+        println!("{:#?}", img);
+        let _ = imgcodecs::imwrite_def(&format!("./imgs/{}.png", square.id), &edges);
+    }
+
+    // (sqr_id, value)
+    let mut proccess_order: Vec<(u32, u32)> = Vec::new();
+    for square in squares.iter() {
+        let path = format!("./imgs/{}.png", square.id);
+        let val = {
+            match ocr(&path) {
+                Ok(n) => n,
+                _ => continue,
+            }
+        };
+        proccess_order.push((square.id, val));
+    }
+    proccess_order.sort_by_key(|(_, val)| *val);
+    println!("{:?}", proccess_order);
+
+    Ok(())
+}
+
+fn get_squares(contours: &core::Vector<core::Vector<core::Point>>) -> Result<Vec<Square>, Err> {
     let mut squares = Vec::new();
+    let mut id = 0;
     for contour in contours.iter() {
         let area = imgproc::contour_area_def(&contour)?;
         if area < 10000. {
@@ -61,42 +93,16 @@ fn main() -> Result<(), Err> {
         let corners = get_corners(&contour);
         let center = get_centroid(&contour)?;
         let square = Square {
+            id,
             corners,
             center,
             value: None,
         };
         squares.push(square);
+        id += 1;
     }
 
-    // save one roi image
-    let mut i = 0;
-    for square in squares {
-        let (top, bot) = square.corners;
-        let img = img.roi(core::Rect::new(top.x, top.y, bot.x - top.x, bot.y - top.y))?;
-        if let Ok(_) = imgcodecs::imwrite_def(&format!("./imgs/{}.png", i), &img) {
-            i += 1;
-        }
-    }
-
-    let mut img = imgcodecs::imread("./monke.png", imgcodecs::IMREAD_COLOR)?;
-    imgproc::draw_contours(
-        &mut img,
-        &contours,
-        -1,
-        core::Scalar::new(0., 0., 255., 0.),
-        2,
-        imgproc::LINE_8,
-        &core::no_array(),
-        1,
-        core::Point::new(0, 0),
-    )?;
-
-    while highgui::wait_key_def()? != 'q' as i32 {
-        highgui::set_mouse_callback("screen", Some(Box::new(on_mouse)));
-        highgui::imshow("screen", &img);
-    }
-
-    Ok(())
+    Ok(squares)
 }
 
 fn get_centroid(contour: &core::Vector<core::Point_<i32>>) -> Result<core::Point, Err> {
@@ -129,7 +135,7 @@ fn get_corners(contour: &core::Vector<core::Point_<i32>>) -> (core::Point, core:
     (top_left, bot_right)
 }
 
-fn on_mouse(event: i32, x: i32, y: i32, _: i32) {
+fn _on_mouse(event: i32, x: i32, y: i32, _: i32) {
     if let Ok(event) = highgui::MouseEventTypes::try_from(event) {
         match event {
             highgui::MouseEventTypes::EVENT_LBUTTONUP => println!("{x} {y}"),
