@@ -1,13 +1,15 @@
-#![allow(unused)]
+// #![allow(unused)]
 
 use std::cell::RefCell;
 use std::error::Error;
 use std::process::Command;
+use std::thread::sleep;
+use std::time::Duration;
 
-use opencv::core::{self, MatTraitConst};
+use opencv::core::{self, MatExprTraitConst, MatTrait, MatTraitConst};
 use opencv::highgui;
 use opencv::imgcodecs;
-use opencv::imgproc;
+use opencv::imgproc::{self, cvt_color};
 
 use rustautogui::{RustAutoGui, Screen};
 
@@ -22,21 +24,23 @@ struct Square {
 }
 
 fn main() -> Result<(), Err> {
+    // init
     startup();
 
-    // read screen
+    // sleep
+    sleep(Duration::from_secs(3));
+
     let auto_gui = RustAutoGui::new(true);
-    let mut screen = Screen::new();
+    let mut screen = Screen::new(); // read screen
 
-    // 28   231   top left
-    // 1892 243   top right
-    // 36   1051  bot left
-    // 1884 1055  bot right
-
-    let img = imgcodecs::imread("./madami.png", imgcodecs::IMREAD_GRAYSCALE)?;
+    // read frames
+    let screenshot = screenshot(&mut screen)?;
+    let mut frame = core::Mat::default();
+    cvt_color(&screenshot, &mut frame, imgproc::COLOR_BGRA2GRAY, 0)
+        .expect("sumabog ang conversion mula bgra to grayscale");
     let mut edge = core::Mat::default();
     imgproc::adaptive_threshold(
-        &img,
+        &frame,
         &mut edge,
         128.,
         core::BORDER_REPLICATE,
@@ -59,18 +63,17 @@ fn main() -> Result<(), Err> {
     let mut squares = get_squares(&contours)?;
     for square in squares.iter() {
         let (top, bot) = square.corners;
-        let img = img.roi(core::Rect::new(top.x, top.y, bot.x - top.x, bot.y - top.y))?;
+        let frame = frame.roi(core::Rect::new(top.x, top.y, bot.x - top.x, bot.y - top.y))?;
         let mut edges = core::Mat::default();
-        imgproc::canny_def(&img, &mut edges, 128., 256.)?;
+        imgproc::canny_def(&frame, &mut edges, 128., 256.)?;
         imgproc::resize(
-            &img,
+            &frame,
             &mut edges,
             core::Size::default(),
             0.2,
             0.2,
             imgproc::INTER_LINEAR,
         )?;
-        // println!("{:#?}", img);
         let _ = imgcodecs::imwrite_def(&format!("./imgs/{}.png", square.id), &edges);
     }
 
@@ -86,19 +89,19 @@ fn main() -> Result<(), Err> {
         *square.value.borrow_mut() = Some(val);
     }
 
-    squares.sort_by_key(|sqr| sqr.value.borrow().unwrap());
+    println!("{:#?}", squares);
 
-    for sqr in squares {
-        print!("[{}, {}] ", sqr.id, sqr.value.borrow().unwrap());
-    }
-    println!("");
+    squares.sort_by_key(|sqr| sqr.value.borrow().expect("sumabog ang pag sorting"));
+
+    // continue button
+    // 930 645
 
     Ok(())
 }
 
 fn get_squares(contours: &core::Vector<core::Vector<core::Point>>) -> Result<Vec<Square>, Err> {
     let mut squares = Vec::new();
-    let mut id = 0;
+    let mut id = 1;
     for contour in contours.iter() {
         let area = imgproc::contour_area_def(&contour)?;
         if area < 10000. {
@@ -173,8 +176,32 @@ fn startup() {
         .expect("sumabog");
 }
 
-fn get_screen(screen: &mut Screen) {
-    screen.grab_screen_image((todo!()));
+// offset:
+// x: 28  y: 231
+
+// play area:
+// 28    231   top left
+// 1892  243   top right
+// 36    1051  bot left
+// 1884  1055  bot right
+fn screenshot(screen: &mut Screen) -> Result<core::Mat, Err> {
+    let screenshot = screen.grab_screen_image((28, 231, 1884 - 28, 1055 - 231));
+    let mut frame = core::Mat::zeros(
+        screenshot.height() as i32,
+        screenshot.width() as i32,
+        core::CV_8UC4,
+    )?
+    .to_mat()?;
+
+    for pixel in screenshot.enumerate_pixels() {
+        let (x, y) = (pixel.0 as i32, pixel.1 as i32);
+        let color = pixel.2 .0;
+        frame
+            .at_2d_mut::<core::Vec4b>(y, x)?
+            .copy_from_slice(&[color[2], color[1], color[0], color[3]]);
+    }
+
+    Ok(frame)
 }
 
 fn ocr(src: &str) -> Result<u32, Err> {
