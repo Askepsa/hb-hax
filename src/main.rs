@@ -1,100 +1,119 @@
-// #![allow(unused)]
+#![allow(unused)]
 
 use std::error::Error;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time;
 
-use opencv::core::{self, no_array, MatExprTraitConst, MatTrait, MatTraitConst};
-use opencv::imgcodecs::imread;
-use opencv::imgproc::{self, match_template};
-use opencv::{highgui, imgcodecs};
+use opencv::core::{self, MatExprTraitConst, MatTrait, MatTraitConst};
+use opencv::highgui::MouseEventTypes;
+use opencv::imgproc;
 
-use rustautogui::{RustAutoGui, Screen};
+use rustautogui::Screen;
 
 type Err = Box<dyn Error>;
 
+// timer
+// check kung ano yung maximum color ng tile (sa bgra)
 fn main() -> Result<(), Err> {
-    sleep(Duration::from_secs(2));
+    // zzz
+    sleep(time::Duration::from_secs(2));
 
-    let auto_gui = RustAutoGui::new(true);
+    // hanapin kung saan ang coords lol
     let mut screen = Screen::new();
-    let templ = imread("target.png", imgcodecs::IMREAD_COLOR)?;
-
-    // get frame
-    // convert auto_gui's buf to opencv's mat type
+    let mut timer = time::Instant::now();
+    let mut sequence: Vec<(core::Point, Vec<u8>)> = Vec::new();
     loop {
-        let frame = get_frame(&mut screen)?;
-        let (x, y) = get_templ_coords(&frame, &templ)?;
-        println!("x: {x}, y: {y}");
-        auto_gui.move_mouse_to_pos(x + 166, y + 232, 0.0);
-        auto_gui.left_click();
+        let mut img = screenshot(&mut screen)?;
+        let mut frame = screenshot(&mut screen)?;
+        imgproc::cvt_color(&img, &mut frame, imgproc::COLOR_BGRA2GRAY, 0);
+
+        // alamin kung saan ang area ng rectangles
+        let mut edge = core::Mat::default();
+        imgproc::adaptive_threshold(
+            &frame,
+            &mut edge,
+            128.,
+            core::BORDER_REPLICATE,
+            imgproc::THRESH_BINARY_INV,
+            7,
+            3.,
+        )?;
+
+        // get contours
+        let mut contours: core::Vector<core::Vector<core::Point>> =
+            core::Vector::default();
+        imgproc::find_contours(
+            &edge,
+            &mut contours,
+            imgproc::RETR_EXTERNAL,
+            imgproc::CHAIN_APPROX_SIMPLE,
+            core::Point::new(0, 0),
+        )?;
+
+        // get center of contours
+        let mut rect_pts_center = Vec::new();
+        for contour in contours.iter() {
+            let moment = imgproc::moments_def(&contour)?;
+            let center = core::Point::new(
+                (moment.m10 / moment.m00) as i32,
+                (moment.m01 / moment.m00) as i32,
+            );
+            rect_pts_center.push(center);
+        }
+
+        // get center color
+        for &point in rect_pts_center.iter() {
+            let color = img.at_2d::<core::Vec4b>(point.y, point.x)?;
+            if color[0] == 255
+                && color[1] == 255
+                && color[2] == 255
+                && color[3] == 255
+            {
+                sequence.push((
+                    point,
+                    vec![color[0], color[1], color[2], color[3]],
+                ));
+            }
+        }
+
+        println!("{:#?}", sequence);
+        // sleep(time::Duration::from_millis(500));
     }
+
+    Ok(())
 }
 
-fn get_frame(screen: &mut Screen) -> Result<core::Mat, Err> {
-    //      Left         Right
-    // top: 166, 232     1718, 238
-    // bot: 160, 1044    1692, 1040
-
-    let img_buf = screen.grab_screen_image((166, 232, 1692 - 166, 1040 - 232));
+fn screenshot(screen: &mut Screen) -> Result<core::Mat, Err> {
+    // area
+    // 616, 356
+    // 1330, 1007
+    let screen_buf =
+        screen.grab_screen_image((616, 356, 1330 - 616, 1007 - 356));
     let mut frame = core::Mat::zeros(
-        img_buf.height() as i32,
-        img_buf.width() as i32,
-        core::CV_8UC3,
+        screen_buf.height() as i32,
+        screen_buf.width() as i32,
+        core::CV_8UC4,
     )?
     .to_mat()?;
 
-    for pixel in img_buf.enumerate_pixels() {
-        let x = pixel.0 as i32;
-        let y = pixel.1 as i32;
+    for pixel in screen_buf.enumerate_pixels() {
+        let (x, y) = (pixel.0, pixel.1);
         let color = pixel.2 .0;
         frame
-            .at_2d_mut::<core::Vec3b>(y, x)?
-            .copy_from_slice(&color[0..3]);
+            .at_2d_mut::<core::Vec4b>(y as i32, x as i32)?
+            .copy_from_slice(&[color[2], color[1], color[0], color[3]]);
     }
 
     Ok(frame)
 }
 
 fn _on_mouse(event: i32, x: i32, y: i32, _: i32) {
-    use highgui::MouseEventTypes;
-
     if let Ok(event) = MouseEventTypes::try_from(event) {
-        if event == MouseEventTypes::EVENT_LBUTTONUP {
-            println!("{x}, {y}");
+        match event {
+            MouseEventTypes::EVENT_LBUTTONDOWN => {
+                println!("{x}, {y}")
+            }
+            _ => (),
         }
     }
-}
-
-fn get_templ_coords(frame: &core::Mat, templ: &core::Mat) -> Result<(i32, i32), Err> {
-    // template matching
-    let mut templ_match = core::Mat::new_size_with_default(
-        core::Size::new(frame.cols() - templ.cols(), frame.rows() - templ.rows()),
-        core::CV_32FC1,
-        core::Scalar::default(),
-    )?;
-    match_template(
-        frame,
-        &templ,
-        &mut templ_match,
-        imgproc::TM_CCOEFF_NORMED,
-        &no_array(),
-    )?;
-
-    // get min max location
-    let mut min_loc = core::Point::default();
-    let mut max_loc = core::Point::default();
-    core::min_max_loc(
-        &templ_match,
-        None,
-        None,
-        Some(&mut min_loc),
-        Some(&mut max_loc),
-        &no_array(),
-    )?;
-
-    Ok((
-        max_loc.x + (templ.cols() / 2),
-        max_loc.y + (templ.rows() / 2),
-    ))
 }
