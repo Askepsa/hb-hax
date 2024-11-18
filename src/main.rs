@@ -1,4 +1,4 @@
-#![allow(unused)]
+// #![allow(unused)]
 
 use std::cell::RefCell;
 use std::error::Error;
@@ -6,7 +6,7 @@ use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 
-use opencv::core::{self, MatExprTraitConst, MatTrait, MatTraitConst};
+use opencv::core::{self, MatExprTraitConst, MatTrait, MatTraitConst, Point, Point_};
 use opencv::highgui;
 use opencv::imgcodecs;
 use opencv::imgproc::{self, cvt_color};
@@ -18,43 +18,63 @@ type Err = Box<dyn Error>;
 #[derive(Debug)]
 struct Square {
     pub id: u32,
-    pub corners: (core::Point, core::Point),
-    pub center: core::Point,
+    pub corners: (Point, Point),
+    pub center: Point,
     pub value: RefCell<Option<u32>>,
 }
+
+// offset:
+// x: 28 + 1892?  y: 231 + 1055?
+
+// play area:
+// 28    231   top left
+// 1892  243   top right
+// 36    1051  bot left
+// 1884  1055  bot right
+
+const AREA: (Point_<u32>, Point_<u32>) = (Point_::new(28, 231), Point_::new(1884, 1055));
+const OFFSET: Point = Point::new(AREA.0.x as i32, AREA.0.y as i32);
+const BUTTON_POS: Point = Point::new(930, 645);
 
 fn main() -> Result<(), Err> {
     // init
     startup();
 
     // sleep
-    sleep(Duration::from_secs(3));
+    sleep(Duration::from_secs(2));
 
     let auto_gui = RustAutoGui::new(true);
     let mut screen = Screen::new(); // read screen
 
-    // read frames
-    let screenshot = screenshot(&mut screen)?;
-    let (mut frame, mut edge) = process_screenshot(&screenshot)?;
+    loop {
+        // read frames, get contours and coords
+        let screenshot = screenshot(&mut screen)?;
+        let (frame, edge) = process_screenshot(&screenshot)?;
+        let mut contours: core::Vector<core::Vector<Point>> = core::Vector::default();
+        imgproc::find_contours(
+            &edge,
+            &mut contours,
+            imgproc::RETR_EXTERNAL,
+            imgproc::CHAIN_APPROX_SIMPLE,
+            Point::new(0, 0),
+        )?;
 
-    // get contours and coords
-    let mut contours: core::Vector<core::Vector<core::Point>> = core::Vector::default();
-    imgproc::find_contours(
-        &edge,
-        &mut contours,
-        imgproc::RETR_EXTERNAL,
-        imgproc::CHAIN_APPROX_SIMPLE,
-        core::Point::new(0, 0),
-    )?;
+        // save roi images
+        let mut squares = get_squares(&contours)?;
+        parse_imgs(&frame, &mut squares)?;
+        for square in squares.iter() {
+            let pos = square.center;
+            auto_gui.move_mouse_to_pos(pos.x + OFFSET.x, pos.y + OFFSET.y, 0.);
+            auto_gui.left_click();
+        }
 
-    // save roi images
-    let mut squares = get_squares(&contours)?;
-    parse_imgs(&frame, &mut squares)?;
+        println!("{:#?}", squares);
 
-    // continue button
-    // 930 645
-
-    Ok(())
+        if !squares.is_empty() {
+            auto_gui.move_mouse_to_pos(BUTTON_POS.x + OFFSET.x, BUTTON_POS.y + OFFSET.y, 0.);
+            let _ = Command::new("rm").arg("imgs/*.png").output();
+        }
+    }
 }
 
 fn process_screenshot(screenshot: &core::Mat) -> Result<(core::Mat, core::Mat), Err> {
@@ -107,12 +127,12 @@ fn parse_imgs(frame: &core::Mat, squares: &mut Vec<Square>) -> Result<(), Err> {
 
     // println!("{:#?}", squares);
 
-    squares.sort_by_key(|sqr| sqr.value.borrow().expect("sumabog ang pag sorting"));
+    squares.sort_by_key(|sqr| *sqr.value.borrow());
 
     Ok(())
 }
 
-fn get_squares(contours: &core::Vector<core::Vector<core::Point>>) -> Result<Vec<Square>, Err> {
+fn get_squares(contours: &core::Vector<core::Vector<Point>>) -> Result<Vec<Square>, Err> {
     let mut squares = Vec::new();
     let mut id = 1;
     for contour in contours.iter() {
@@ -136,17 +156,17 @@ fn get_squares(contours: &core::Vector<core::Vector<core::Point>>) -> Result<Vec
     Ok(squares)
 }
 
-fn get_centroid(contour: &core::Vector<core::Point_<i32>>) -> Result<core::Point, Err> {
+fn get_centroid(contour: &core::Vector<core::Point_<i32>>) -> Result<Point, Err> {
     let moment = imgproc::moments(&contour, false)?;
     let (x, y) = (moment.m10 / moment.m00, moment.m01 / moment.m00);
-    Ok(core::Point::new(x as i32, y as i32))
+    Ok(Point::new(x as i32, y as i32))
 }
 
-fn get_corners(contour: &core::Vector<core::Point_<i32>>) -> (core::Point, core::Point) {
+fn get_corners(contour: &core::Vector<core::Point_<i32>>) -> (Point, Point) {
     let max_val = i32::max_value();
     let top_left = contour
         .iter()
-        .fold(core::Point::new(max_val, max_val), |mut acc, point| {
+        .fold(Point::new(max_val, max_val), |mut acc, point| {
             if point.x <= acc.x && point.y <= acc.y {
                 acc = point;
             }
@@ -156,7 +176,7 @@ fn get_corners(contour: &core::Vector<core::Point_<i32>>) -> (core::Point, core:
     let min_val = 0;
     let bot_right = contour
         .iter()
-        .fold(core::Point::new(min_val, min_val), |mut acc, point| {
+        .fold(Point::new(min_val, min_val), |mut acc, point| {
             if point.x >= acc.x && point.y >= acc.y {
                 acc = point;
             }
@@ -198,7 +218,8 @@ fn startup() {
 // 36    1051  bot left
 // 1884  1055  bot right
 fn screenshot(screen: &mut Screen) -> Result<core::Mat, Err> {
-    let screenshot = screen.grab_screen_image((28, 231, 1884 - 28, 1055 - 231));
+    let screenshot =
+        screen.grab_screen_image((AREA.0.x, AREA.0.y, AREA.1.x - AREA.0.x, AREA.1.y - AREA.0.y));
     let mut frame = core::Mat::zeros(
         screenshot.height() as i32,
         screenshot.width() as i32,
