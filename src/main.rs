@@ -1,4 +1,4 @@
-// #![allow(unused)]
+#![allow(unused)]
 
 use std::cell::RefCell;
 use std::error::Error;
@@ -35,21 +35,9 @@ fn main() -> Result<(), Err> {
 
     // read frames
     let screenshot = screenshot(&mut screen)?;
-    let mut frame = core::Mat::default();
-    cvt_color(&screenshot, &mut frame, imgproc::COLOR_BGRA2GRAY, 0)
-        .expect("sumabog ang conversion mula bgra to grayscale");
-    let mut edge = core::Mat::default();
-    imgproc::adaptive_threshold(
-        &frame,
-        &mut edge,
-        128.,
-        core::BORDER_REPLICATE,
-        imgproc::THRESH_BINARY_INV,
-        7,
-        3.,
-    )?;
+    let (mut frame, mut edge) = process_screenshot(&screenshot)?;
 
-    // get coords
+    // get contours and coords
     let mut contours: core::Vector<core::Vector<core::Point>> = core::Vector::default();
     imgproc::find_contours(
         &edge,
@@ -61,6 +49,34 @@ fn main() -> Result<(), Err> {
 
     // save roi images
     let mut squares = get_squares(&contours)?;
+    parse_imgs(&frame, &mut squares)?;
+
+    // continue button
+    // 930 645
+
+    Ok(())
+}
+
+fn process_screenshot(screenshot: &core::Mat) -> Result<(core::Mat, core::Mat), Err> {
+    let mut frame = core::Mat::default();
+    cvt_color(&screenshot, &mut frame, imgproc::COLOR_BGRA2GRAY, 0)
+        .expect("sumabog ang conversion mula bgra to grayscale");
+
+    let mut edge = core::Mat::default();
+    imgproc::adaptive_threshold(
+        &frame,
+        &mut edge,
+        128.,
+        core::BORDER_REPLICATE,
+        imgproc::THRESH_BINARY_INV,
+        7,
+        3.,
+    )?;
+
+    Ok((frame, edge))
+}
+
+fn parse_imgs(frame: &core::Mat, squares: &mut Vec<Square>) -> Result<(), Err> {
     for square in squares.iter() {
         let (top, bot) = square.corners;
         let frame = frame.roi(core::Rect::new(top.x, top.y, bot.x - top.x, bot.y - top.y))?;
@@ -77,7 +93,7 @@ fn main() -> Result<(), Err> {
         let _ = imgcodecs::imwrite_def(&format!("./imgs/{}.png", square.id), &edges);
     }
 
-    // run ocr
+    // save img, run ocr, update square and sort squares
     for square in squares.iter() {
         let path = format!("./imgs/{}.png", square.id);
         let val = {
@@ -89,12 +105,9 @@ fn main() -> Result<(), Err> {
         *square.value.borrow_mut() = Some(val);
     }
 
-    println!("{:#?}", squares);
+    // println!("{:#?}", squares);
 
     squares.sort_by_key(|sqr| sqr.value.borrow().expect("sumabog ang pag sorting"));
-
-    // continue button
-    // 930 645
 
     Ok(())
 }
