@@ -12,6 +12,7 @@ use rustautogui::{RustAutoGui, Screen};
 
 type Err = Box<dyn Error>;
 
+// threshold
 const WHITE: core::VecN<u8, 4> = core::VecN::new(255, 255, 255, 255);
 const OFFSET: (i32, i32) = (646, 389);
 
@@ -78,7 +79,6 @@ fn black_magic(
     timer: &mut Instant,
     sequence: &mut Vec<core::Point_<i32>>,
     prev_active_sqr: &mut Option<core::Point_<i32>>,
-
     rect_pts_center: &mut Vec<core::Point_<i32>>,
 ) -> Result<(), Err> {
     loop {
@@ -132,7 +132,7 @@ fn black_magic(
         for &point in rect_pts_center.iter() {
             if let Some(prev_point) = prev_active_sqr {
                 let prev_point_color =
-                    img.at_2d::<core::Vec4b>(prev_point.x, prev_point.y)?;
+                    img.at_2d::<core::Vec4b>(prev_point.y, prev_point.x)?;
                 if *prev_point == point && *prev_point_color != WHITE {
                     *prev_active_sqr = None;
                     *timer = Instant::now();
