@@ -59,7 +59,7 @@ fn main() -> Result<(), Err> {
             auto_gui.move_mouse_to_pos(
                 point.x + OFFSET.0,
                 point.y + OFFSET.1,
-                0.,
+                1.,
             );
             auto_gui.left_click();
         }
@@ -68,7 +68,10 @@ fn main() -> Result<(), Err> {
             println!("{:#?}", sequence);
         }
 
+        prev_active_sqr = None;
         sequence.clear();
+        sleep(Duration::from_millis(1500));
+        timer = Instant::now();
     }
 
     Ok(())
@@ -82,53 +85,11 @@ fn black_magic(
     rect_pts_center: &mut Vec<core::Point_<i32>>,
 ) -> Result<(), Err> {
     loop {
-        if Instant::now().duration_since(*timer) >= Duration::from_secs(3) {
+        if Instant::now().duration_since(*timer) >= Duration::from_secs(2) {
             return Ok(());
         }
 
         let mut img = screenshot(screen)?;
-        let mut frame = screenshot(screen)?;
-        imgproc::cvt_color(&img, &mut frame, imgproc::COLOR_BGRA2GRAY, 0);
-
-        // let mut edge = core::Mat::default();
-        // imgproc::adaptive_threshold(
-        //     &frame,
-        //     &mut edge,
-        //     128.,
-        //     core::BORDER_REPLICATE,
-        //     imgproc::THRESH_BINARY_INV,
-        //     7,
-        //     3.,
-        // )?;
-
-        // let mut contours: core::Vector<core::Vector<core::Point>> =
-        //     core::Vector::default();
-        // imgproc::find_contours(
-        //     &edge,
-        //     &mut contours,
-        //     imgproc::RETR_EXTERNAL,
-        //     imgproc::CHAIN_APPROX_SIMPLE,
-        //     core::Point::new(0, 0),
-        // )?;
-
-        // let mut rect_pts_center = Vec::new();
-        // for contour in contours.iter() {
-        //     let moment = imgproc::moments_def(&contour)?;
-        //     let center = core::Point::new(
-        //         (moment.m10 / moment.m00) as i32,
-        //         (moment.m01 / moment.m00) as i32,
-        //     );
-        //     rect_pts_center.push(center);
-        // }
-
-        // println!("{:#?}", rect_pts_center);
-
-        // get sequence
-        // check if color does not match anymore
-        // basta pipili tayo ng bagong point
-        // kung ang prev point ay di na puti
-        // at kung ang cur point ay puti
-
         for &point in rect_pts_center.iter() {
             if let Some(prev_point) = prev_active_sqr {
                 let prev_point_color =
